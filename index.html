@@ -185,7 +185,6 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
         import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-storage.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAXvhCc7N4eXrMYjwBqnfuWbaXsuR-_syQ",
@@ -199,7 +198,6 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const storage = getStorage(app);
 
         // Party form submission
         const form = document.getElementById('party-form');
@@ -227,10 +225,22 @@
             }
         });
 
-        // Image uploader:
-        // Images are stored in Firebase Storage instead of Firestore.
-        // Firestore documents have a ~1 MiB limit, so storing Base64 image data
-        // directly in a Firestore document can make uploads fail.
+        // ============================================================
+        // FAST IMAGE UPLOAD
+        // ============================================================
+        // Images are uploaded directly to Cloudinary from the browser.
+        // Firestore only stores the resulting URL, so large image data
+        // never passes through Firestore.
+        //
+        // SET THESE TWO VALUES from your Cloudinary dashboard:
+        //   CLOUDINARY_CLOUD_NAME
+        //   CLOUDINARY_UPLOAD_PRESET
+        //
+        // The upload preset must be an UNSIGNED upload preset.
+        // ============================================================
+
+        const CLOUDINARY_CLOUD_NAME = "YOUR_CLOUD_NAME";
+        const CLOUDINARY_UPLOAD_PRESET = "YOUR_UNSIGNED_UPLOAD_PRESET";
 
         const imageInput = document.getElementById('image-input');
         const preview = document.getElementById('preview');
@@ -257,10 +267,9 @@
                 return;
             }
 
-            // Prevent unnecessarily huge source files.
-            if (file.size > 10 * 1024 * 1024) {
+            if (file.size > 15 * 1024 * 1024) {
                 uploadStatus.style.color = '#d9534f';
-                uploadStatus.textContent = '❌ Please choose an image smaller than 10 MB.';
+                uploadStatus.textContent = '❌ Please choose an image smaller than 15 MB.';
                 imageInput.value = '';
                 compressedBlob = null;
                 preview.style.display = 'none';
@@ -277,8 +286,10 @@
 
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 1200;
-                    const MAX_HEIGHT = 1200;
+
+                    // Smaller image = faster upload while still looking good.
+                    const MAX_WIDTH = 1000;
+                    const MAX_HEIGHT = 1000;
 
                     let width = img.naturalWidth;
                     let height = img.naturalHeight;
@@ -297,8 +308,6 @@
                     canvas.height = height;
 
                     const ctx = canvas.getContext('2d');
-
-                    // JPEG does not support transparency, so use a white background.
                     ctx.fillStyle = '#ffffff';
                     ctx.fillRect(0, 0, width, height);
                     ctx.drawImage(img, 0, 0, width, height);
@@ -314,16 +323,23 @@
 
                             compressedBlob = blob;
 
-                            preview.src = URL.createObjectURL(blob);
+                            if (preview.dataset.objectUrl) {
+                                URL.revokeObjectURL(preview.dataset.objectUrl);
+                            }
+
+                            const objectUrl = URL.createObjectURL(blob);
+                            preview.dataset.objectUrl = objectUrl;
+                            preview.src = objectUrl;
                             preview.style.display = 'block';
 
                             const sizeKB = Math.round(blob.size / 1024);
+
                             uploadStatus.style.color = '#556b2f';
                             uploadStatus.textContent =
-                                `✨ Image ready (${sizeKB} KB). Click Upload Image to Database.`;
+                                `✨ Ready to upload (${sizeKB} KB).`;
                         },
                         'image/jpeg',
-                        0.75
+                        0.72
                     );
                 };
 
@@ -352,61 +368,74 @@
                 return;
             }
 
+            if (
+                CLOUDINARY_CLOUD_NAME === "YOUR_CLOUD_NAME" ||
+                CLOUDINARY_UPLOAD_PRESET === "YOUR_UNSIGNED_UPLOAD_PRESET"
+            ) {
+                uploadStatus.style.color = '#d9534f';
+                uploadStatus.textContent =
+                    '❌ Add your Cloudinary Cloud Name and Upload Preset first.';
+                return;
+            }
+
             uploadBtn.disabled = true;
             uploadBtn.textContent = 'Uploading...';
             uploadStatus.style.color = '#333';
             uploadStatus.textContent = '☁️ Uploading image...';
 
             try {
-                // Give every upload a unique filename.
-                const fileName =
-                    `party-images/${Date.now()}-${crypto.randomUUID()}.jpg`;
+                const formData = new FormData();
 
-                // Upload the actual image file to Firebase Storage.
-                const storageRef = ref(storage, fileName);
+                formData.append('file', compressedBlob, 'party-image.jpg');
+                formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+                formData.append('folder', 'birthday-party');
 
-                await uploadBytes(storageRef, compressedBlob, {
-                    contentType: 'image/jpeg',
-                    cacheControl: 'public,max-age=31536000'
-                });
+                const response = await fetch(
+                    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+                    {
+                        method: 'POST',
+                        body: formData
+                    }
+                );
 
-                // Get a URL that can be saved in Firestore.
-                const imageUrl = await getDownloadURL(storageRef);
+                const result = await response.json();
 
-                // Save only metadata + URL in Firestore.
-                await addDoc(collection(db, 'images'), {
-                    imageUrl: imageUrl,
-                    storagePath: fileName,
-                    contentType: 'image/jpeg',
-                    size: compressedBlob.size,
+                if (!response.ok || !result.secure_url) {
+                    throw new Error(
+                        result.error?.message || 'Cloudinary upload failed.'
+                    );
+                }
+
+                // Save only the small URL/metadata in Firestore.
+                await addDoc(collection(db, "images"), {
+                    imageUrl: result.secure_url,
+                    publicId: result.public_id || null,
+                    width: result.width || null,
+                    height: result.height || null,
+                    format: result.format || 'jpg',
+                    bytes: result.bytes || compressedBlob.size,
                     timestamp: serverTimestamp()
                 });
 
                 uploadStatus.style.color = '#556b2f';
                 uploadStatus.textContent =
-                    '✨ Image successfully uploaded and saved!';
+                    '✨ Image uploaded successfully!';
 
                 imageInput.value = '';
                 preview.style.display = 'none';
                 compressedBlob = null;
+
+                if (preview.dataset.objectUrl) {
+                    URL.revokeObjectURL(preview.dataset.objectUrl);
+                    delete preview.dataset.objectUrl;
+                }
+
             } catch (error) {
-                console.error('Error uploading image:', error);
+                console.error('Image upload error:', error);
 
                 uploadStatus.style.color = '#d9534f';
-
-                if (error.code === 'storage/unauthorized') {
-                    uploadStatus.textContent =
-                        '❌ Upload blocked by Firebase Storage rules. Update your Storage rules.';
-                } else if (error.code === 'permission-denied') {
-                    uploadStatus.textContent =
-                        '❌ Firestore permission denied. Check your Firestore rules.';
-                } else if (error.code === 'storage/quota-exceeded') {
-                    uploadStatus.textContent =
-                        '❌ Firebase Storage quota exceeded.';
-                } else {
-                    uploadStatus.textContent =
-                        `❌ Upload failed: ${error.message}`;
-                }
+                uploadStatus.textContent =
+                    `❌ Upload failed: ${error.message}`;
             } finally {
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Upload Image to Database';
