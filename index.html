@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>You're Invited! 🎉</title>
+    <title>Happy Birthday, Bestie! 🎉</title>
     <style>
         :root {
             --primary-color: #ff6b81;
@@ -44,14 +44,21 @@
             flex-direction: column;
             gap: 12px;
             margin-top: 20px;
+            text-align: left;
         }
-        input, textarea {
+        label {
+            font-weight: bold;
+            font-size: 14px;
+            color: var(--text-color);
+        }
+        select, input {
             padding: 12px;
             border: 1px solid #ddd;
             border-radius: 8px;
             font-size: 14px;
             width: 100%;
             box-sizing: border-box;
+            background: white;
         }
         button {
             background-color: var(--primary-color);
@@ -63,33 +70,42 @@
             cursor: pointer;
             font-weight: bold;
             transition: opacity 0.2s;
+            margin-top: 10px;
+            text-align: center;
         }
         button:hover { opacity: 0.9; }
-        #rsvp-status { margin-top: 10px; font-size: 14px; color: #2ed573; }
+        #setup-status { margin-top: 10px; font-size: 14px; color: #2ed573; text-align: center; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h1>You're Invited! 🎂</h1>
-        <p>Let's celebrate a wonderful birthday together!</p>
+        <h1>Hello Birthday Girl! 👑</h1>
+        <p>This special invitation is just for you. Let's plan your ultimate celebration!</p>
         
         <div class="details">
-            <p><strong>📅 Date:</strong> Saturday, September 12, 2026</p>
-            <p><strong>⏰ Time:</strong> 7:00 PM Onwards</p>
-            <p><strong>📍 Location:</strong> Rooftop Garden Cafe</p>
+            <p><strong>📍 Location:</strong> Bakehouse</p>
+            <p><em>Configure your party details below so we can get everything ready!</em></p>
         </div>
 
-        <form id="rsvp-form">
-            <h3>RSVP & Leave a Wish</h3>
-            <input type="text" id="guest-name" placeholder="Your Name" required>
-            <textarea id="guest-message" placeholder="Leave a birthday wish..." rows="3" required></textarea>
-            <button type="submit">Send RSVP</button>
-            <p id="rsvp-status"></p>
+        <form id="party-form">
+            <label for="party-date">Choose Your Date:</label>
+            <select id="party-date" required>
+                <option value="" disabled selected>Select a date</option>
+                <option value="August 29">August 29</option>
+                <option value="August 30">August 30</option>
+                <option value="August 31">August 31</option>
+            </select>
+
+            <label for="party-theme">Choose Your Theme:</label>
+            <input type="text" id="party-theme" placeholder="e.g., Pastel Pink, Y2K, Fairy Tale..." required>
+
+            <button type="submit">Lock In My Party!</button>
+            <p id="setup-status"></p>
         </form>
     </div>
 
-    <!-- Firebase SDKs (Modular Version matching your config) -->
+    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
         import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
@@ -105,33 +121,33 @@
             measurementId: "G-ZRHQPBLCGK"
         };
 
-        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        const form = document.getElementById('rsvp-form');
-        const statusText = document.getElementById('rsvp-status');
+        const form = document.getElementById('party-form');
+        const statusText = document.getElementById('setup-status');
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            const name = document.getElementById('guest-name').value;
-            const message = document.getElementById('guest-message').value;
+            const selectedDate = document.getElementById('party-date').value;
+            const selectedTheme = document.getElementById('party-theme').value;
 
             try {
-                await addDoc(collection(db, "rsvps"), {
-                    name: name,
-                    message: message,
+                await addDoc(collection(db, "party_settings"), {
+                    date: selectedDate,
+                    theme: selectedTheme,
+                    location: "Bakehouse",
                     timestamp: serverTimestamp()
                 });
                 
                 statusText.style.color = "#2ed573";
-                statusText.textContent = "✨ RSVP sent successfully! See you there!";
+                statusText.textContent = "✨ Party details saved! Time to celebrate!";
                 form.reset();
             } catch (error) {
-                console.error("Error adding document: ", error);
+                console.error("Error saving settings: ", error);
                 statusText.style.color = "#ff4757";
-                statusText.textContent = "❌ Error sending RSVP. Please try again.";
+                statusText.textContent = "❌ Error saving. Please try again.";
             }
         });
     </script>
