@@ -185,6 +185,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
         import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-storage.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAXvhCc7N4eXrMYjwBqnfuWbaXsuR-_syQ",
@@ -198,6 +199,7 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const storage = getStorage(app);
 
         // Party form submission
         const form = document.getElementById('party-form');
@@ -225,80 +227,192 @@
             }
         });
 
-        // Image uploader with auto-compression to fit Firestore limits
+        // Image uploader:
+        // Images are stored in Firebase Storage instead of Firestore.
+        // Firestore documents have a ~1 MiB limit, so storing Base64 image data
+        // directly in a Firestore document can make uploads fail.
+
         const imageInput = document.getElementById('image-input');
         const preview = document.getElementById('preview');
         const uploadBtn = document.getElementById('upload-btn');
         const uploadStatus = document.getElementById('upload-status');
-        let compressedBase64 = "";
+
+        let compressedBlob = null;
 
         imageInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
-            if (!file) return;
+
+            if (!file) {
+                compressedBlob = null;
+                preview.style.display = 'none';
+                return;
+            }
+
+            if (!file.type.startsWith('image/')) {
+                uploadStatus.style.color = '#d9534f';
+                uploadStatus.textContent = '❌ Please select an image file.';
+                imageInput.value = '';
+                compressedBlob = null;
+                preview.style.display = 'none';
+                return;
+            }
+
+            // Prevent unnecessarily huge source files.
+            if (file.size > 10 * 1024 * 1024) {
+                uploadStatus.style.color = '#d9534f';
+                uploadStatus.textContent = '❌ Please choose an image smaller than 10 MB.';
+                imageInput.value = '';
+                compressedBlob = null;
+                preview.style.display = 'none';
+                return;
+            }
+
+            uploadStatus.style.color = '#555';
+            uploadStatus.textContent = 'Preparing image...';
 
             const reader = new FileReader();
+
             reader.onload = (event) => {
                 const img = new Image();
+
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 800;
-                    const MAX_HEIGHT = 800;
-                    let width = img.width;
-                    let height = img.height;
+                    const MAX_WIDTH = 1200;
+                    const MAX_HEIGHT = 1200;
 
-                    if (width > height) {
-                        if (width > MAX_WIDTH) {
-                            height *= MAX_WIDTH / width;
-                            width = MAX_WIDTH;
-                        }
-                    } else {
-                        if (height > MAX_HEIGHT) {
-                            width *= MAX_HEIGHT / height;
-                            height = MAX_HEIGHT;
-                        }
+                    let width = img.naturalWidth;
+                    let height = img.naturalHeight;
+
+                    if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+                        const scale = Math.min(
+                            MAX_WIDTH / width,
+                            MAX_HEIGHT / height
+                        );
+
+                        width = Math.round(width * scale);
+                        height = Math.round(height * scale);
                     }
 
                     canvas.width = width;
                     canvas.height = height;
+
                     const ctx = canvas.getContext('2d');
+
+                    // JPEG does not support transparency, so use a white background.
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, width, height);
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    // Compress to JPEG with 0.7 quality so it stays well under 1MB
-                    compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-                    preview.src = compressedBase64;
-                    preview.style.display = 'block';
+                    canvas.toBlob(
+                        (blob) => {
+                            if (!blob) {
+                                uploadStatus.style.color = '#d9534f';
+                                uploadStatus.textContent = '❌ Could not process the image.';
+                                compressedBlob = null;
+                                return;
+                            }
+
+                            compressedBlob = blob;
+
+                            preview.src = URL.createObjectURL(blob);
+                            preview.style.display = 'block';
+
+                            const sizeKB = Math.round(blob.size / 1024);
+                            uploadStatus.style.color = '#556b2f';
+                            uploadStatus.textContent =
+                                `✨ Image ready (${sizeKB} KB). Click Upload Image to Database.`;
+                        },
+                        'image/jpeg',
+                        0.75
+                    );
                 };
+
+                img.onerror = () => {
+                    uploadStatus.style.color = '#d9534f';
+                    uploadStatus.textContent = '❌ Could not read this image.';
+                    compressedBlob = null;
+                };
+
                 img.src = event.target.result;
             };
+
+            reader.onerror = () => {
+                uploadStatus.style.color = '#d9534f';
+                uploadStatus.textContent = '❌ Could not read the selected file.';
+                compressedBlob = null;
+            };
+
             reader.readAsDataURL(file);
         });
 
         uploadBtn.addEventListener('click', async () => {
-            if (!compressedBase64) {
-                uploadStatus.style.color = "#d9534f";
-                uploadStatus.textContent = "Please select an image first!";
+            if (!compressedBlob) {
+                uploadStatus.style.color = '#d9534f';
+                uploadStatus.textContent = '❌ Please select an image first!';
                 return;
             }
 
-            uploadStatus.style.color = "#333";
-            uploadStatus.textContent = "Compressing & uploading image...";
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+            uploadStatus.style.color = '#333';
+            uploadStatus.textContent = '☁️ Uploading image...';
 
             try {
-                await addDoc(collection(db, "images"), {
-                    imageBase64: compressedBase64,
+                // Give every upload a unique filename.
+                const fileName =
+                    `party-images/${Date.now()}-${crypto.randomUUID()}.jpg`;
+
+                // Upload the actual image file to Firebase Storage.
+                const storageRef = ref(storage, fileName);
+
+                await uploadBytes(storageRef, compressedBlob, {
+                    contentType: 'image/jpeg',
+                    cacheControl: 'public,max-age=31536000'
+                });
+
+                // Get a URL that can be saved in Firestore.
+                const imageUrl = await getDownloadURL(storageRef);
+
+                // Save only metadata + URL in Firestore.
+                await addDoc(collection(db, 'images'), {
+                    imageUrl: imageUrl,
+                    storagePath: fileName,
+                    contentType: 'image/jpeg',
+                    size: compressedBlob.size,
                     timestamp: serverTimestamp()
                 });
-                uploadStatus.style.color = "#556b2f";
-                uploadStatus.textContent = "✨ Image successfully compressed and saved to database!";
-                imageInput.value = "";
-                preview.style.display = "none";
-                compressedBase64 = "";
+
+                uploadStatus.style.color = '#556b2f';
+                uploadStatus.textContent =
+                    '✨ Image successfully uploaded and saved!';
+
+                imageInput.value = '';
+                preview.style.display = 'none';
+                compressedBlob = null;
             } catch (error) {
-                console.error("Error uploading image: ", error);
-                uploadStatus.style.color = "#d9534f";
-                uploadStatus.textContent = "❌ Error uploading image to database.";
+                console.error('Error uploading image:', error);
+
+                uploadStatus.style.color = '#d9534f';
+
+                if (error.code === 'storage/unauthorized') {
+                    uploadStatus.textContent =
+                        '❌ Upload blocked by Firebase Storage rules. Update your Storage rules.';
+                } else if (error.code === 'permission-denied') {
+                    uploadStatus.textContent =
+                        '❌ Firestore permission denied. Check your Firestore rules.';
+                } else if (error.code === 'storage/quota-exceeded') {
+                    uploadStatus.textContent =
+                        '❌ Firebase Storage quota exceeded.';
+                } else {
+                    uploadStatus.textContent =
+                        `❌ Upload failed: ${error.message}`;
+                }
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload Image to Database';
             }
         });
+
     </script>
 </body>
 </html>
