@@ -114,12 +114,25 @@
             transition: background 0.2s;
             margin-top: 10px;
             box-shadow: 0 4px 12px rgba(85, 107, 47, 0.2);
+            width: 100%;
         }
         button:hover { background-color: var(--dark-green); }
-        #setup-status { 
-            margin-top: 15px; 
-            font-size: 14px; 
-            color: var(--olive-green); 
+        .upload-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px dashed #ddd;
+            text-align: left;
+        }
+        #preview {
+            max-width: 100%;
+            max-height: 150px;
+            margin-top: 10px;
+            border-radius: 8px;
+            display: none;
+        }
+        #setup-status, #upload-status { 
+            margin-top: 10px; 
+            font-size: 13px; 
             font-weight: 500;
             text-align: center; 
         }
@@ -140,6 +153,7 @@
             <p><strong>✨ Host:</strong> Your Best Friends</p>
         </div>
 
+        <!-- Birthday Girl Setup Form -->
         <form id="party-form">
             <label for="party-date">Choose Your Date:</label>
             <select id="party-date" required>
@@ -155,6 +169,16 @@
             <button type="submit">Lock In My Party Settings</button>
             <p id="setup-status"></p>
         </form>
+
+        <!-- Base64 Image Uploader Section -->
+        <div class="upload-section">
+            <label>Upload Party/Theme Image to DB:</label>
+            <input type="file" id="image-input" accept="image/*" style="margin-top: 8px;">
+            <br>
+            <img id="preview" alt="Preview">
+            <button type="button" id="upload-btn" style="background-color: var(--deep-pink); margin-top: 10px;">Upload Image to Database</button>
+            <p id="upload-status"></p>
+        </div>
     </div>
 
     <!-- Firebase SDKs -->
@@ -175,12 +199,12 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
+        // Party form submission
         const form = document.getElementById('party-form');
-        const statusText = document.getElementById('rsvp-status');
+        const statusText = document.getElementById('setup-status');
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const selectedDate = document.getElementById('party-date').value;
             const selectedTheme = document.getElementById('party-theme').value;
 
@@ -191,14 +215,60 @@
                     location: "Bakehouse",
                     timestamp: serverTimestamp()
                 });
-                
                 statusText.style.color = "#556b2f";
-                statusText.textContent = "✨ Party details saved successfully! See you at Bakehouse!";
+                statusText.textContent = "✨ Party details saved successfully!";
                 form.reset();
             } catch (error) {
                 console.error("Error saving settings: ", error);
                 statusText.style.color = "#d9534f";
-                statusText.textContent = "❌ Error saving. Please try again.";
+                statusText.textContent = "❌ Error saving settings.";
+            }
+        });
+
+        // Image uploader logic
+        const imageInput = document.getElementById('image-input');
+        const preview = document.getElementById('preview');
+        const uploadBtn = document.getElementById('upload-btn');
+        const uploadStatus = document.getElementById('upload-status');
+        let base64String = "";
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    base64String = event.target.result;
+                    preview.src = base64String;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        uploadBtn.addEventListener('click', async () => {
+            if (!base64String) {
+                uploadStatus.style.color = "#d9534f";
+                uploadStatus.textContent = "Please select an image first!";
+                return;
+            }
+
+            uploadStatus.style.color = "#333";
+            uploadStatus.textContent = "Uploading image...";
+
+            try {
+                await addDoc(collection(db, "images"), {
+                    imageBase64: base64String,
+                    timestamp: serverTimestamp()
+                });
+                uploadStatus.style.color = "#556b2f";
+                uploadStatus.textContent = "✨ Image successfully saved as Base64!";
+                imageInput.value = "";
+                preview.style.display = "none";
+                base64String = "";
+            } catch (error) {
+                console.error("Error uploading image: ", error);
+                uploadStatus.style.color = "#d9534f";
+                uploadStatus.textContent = "❌ Error uploading image.";
             }
         });
     </script>
