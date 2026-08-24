@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>You're Invited! 🎉</title>
+    <style>
+        :root {
+            --primary-color: #ff6b81;
+            --bg-color: #fff0f3;
+            --text-color: #2f3542;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            max-width: 450px;
+            width: 100%;
+            text-align: center;
+        }
+        h1 { color: var(--primary-color); margin-bottom: 10px; }
+        .details {
+            margin: 20px 0;
+            line-height: 1.6;
+            background: #fff5f7;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: left;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        input, textarea {
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+        #rsvp-status { margin-top: 10px; font-size: 14px; color: #2ed573; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>You're Invited! 🎂</h1>
+        <p>Let's celebrate a wonderful birthday together!</p>
+        
+        <div class="details">
+            <p><strong>📅 Date:</strong> Saturday, September 12, 2026</p>
+            <p><strong>⏰ Time:</strong> 7:00 PM Onwards</p>
+            <p><strong>📍 Location:</strong> Rooftop Garden Cafe</p>
+        </div>
+
+        <form id="rsvp-form">
+            <h3>RSVP & Leave a Wish</h3>
+            <input type="text" id="guest-name" placeholder="Your Name" required>
+            <textarea id="guest-message" placeholder="Leave a birthday wish..." rows="3" required></textarea>
+            <button type="submit">Send RSVP</button>
+            <p id="rsvp-status"></p>
+        </form>
+    </div>
+
+    <!-- Firebase SDKs (Modular Version matching your config) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+
+        // Your Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAXvhCc7N4eXrMYjwBqnfuWbaXsuR-_syQ",
+            authDomain: "pretty-birthday.firebaseapp.com",
+            projectId: "pretty-birthday",
+            storageBucket: "pretty-birthday.firebasestorage.app",
+            messagingSenderId: "113184135163",
+            appId: "1:113184135163:web:3781e97fbdd244c3d6dd5e",
+            measurementId: "G-ZRHQPBLCGK"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const form = document.getElementById('rsvp-form');
+        const statusText = document.getElementById('rsvp-status');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const name = document.getElementById('guest-name').value;
+            const message = document.getElementById('guest-message').value;
+
+            try {
+                await addDoc(collection(db, "rsvps"), {
+                    name: name,
+                    message: message,
+                    timestamp: serverTimestamp()
+                });
+                
+                statusText.style.color = "#2ed573";
+                statusText.textContent = "✨ RSVP sent successfully! See you there!";
+                form.reset();
+            } catch (error) {
+                console.error("Error adding document: ", error);
+                statusText.style.color = "#ff4757";
+                statusText.textContent = "❌ Error sending RSVP. Please try again.";
+            }
+        });
+    </script>
+</body>
+</html>
